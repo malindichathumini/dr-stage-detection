@@ -10,8 +10,8 @@ browser.
 |---|---|
 | Live website (runs in your browser) | https://dr-stage-detection.vercel.app |
 | Code (this repository) | https://github.com/malindichathumini/dr-stage-detection |
-| Final results notebook (Kaggle) | https://www.kaggle.com/code/malindichathumini/notebook3ed29b4e40 |
-| Experiments notebook, Version 2 (Kaggle) | https://www.kaggle.com/code/malindichathumini/notebook3c2b02ce79 |
+| Final results notebook: test evaluation (Kaggle) | https://www.kaggle.com/code/malindichathumini/dr-stage-detection-final-results |
+| Experiments notebook: all 4 experiments + training (Kaggle) | https://www.kaggle.com/code/malindichathumini/dr-stage-detection-experiments |
 | Video demonstration | https://YOUR-VIDEO-LINK |
 
 NIBM · BSc (Hons) Computer Science · Computer Vision · Coursework 1
