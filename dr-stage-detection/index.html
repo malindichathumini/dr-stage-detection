@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DR Stage Detection</title>
+<meta name="description" content="Grades retinal fundus photographs on the 0-4 diabetic retinopathy scale with a CNN that runs entirely in your browser.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hero">
+    <div class="hero-eyebrow">Computer Vision &middot; CNN transfer learning &middot; runs in your browser</div>
+    <h1>Diabetic Retinopathy Stage Detection</h1>
+    <p>Grades a retinal fundus photograph on the international 0&ndash;4 diabetic retinopathy scale and shows where
+      the model looked. The model runs on your own device: your image is never uploaded.</p>
+    <div class="chips" id="chips"></div>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab active" role="tab" aria-selected="true" data-tab="analyse">Analyse an image</button>
+    <button class="tab" role="tab" aria-selected="false" data-tab="performance">Model performance</button>
+    <button class="tab" role="tab" aria-selected="false" data-tab="how">How it works</button>
+    <button class="tab" role="tab" aria-selected="false" data-tab="about">About</button>
+  </nav>
+
+  <!-- ================= Analyse ================= -->
+  <section class="panel" id="panel-analyse">
+    <div class="status" id="status"><span class="spinner"></span><span id="status-text">Loading the model (about 27 MB, only the first time)&hellip;</span></div>
+    <div class="grid-2">
+      <div>
+        <div class="step-label">1 &middot; Choose a fundus photograph</div>
+        <label class="drop" id="drop" for="file">
+          <input type="file" id="file" accept="image/png,image/jpeg,image/webp">
+          <img id="preview" alt="" hidden>
+          <span class="drop-empty" id="drop-empty">
+            <span class="drop-icon">&#8679;</span>
+            <b>Drop an image here</b> or click to choose a file<br>
+            <small>PNG or JPEG retinal fundus photograph</small>
+          </span>
+        </label>
+        <div class="btn-row">
+          <button class="btn primary" id="analyse" disabled>Analyse image</button>
+          <button class="btn" id="clear">Clear</button>
+        </div>
+        <p class="hint">Tip: use the test images in your <code>examples</code> folder. Dataset images are not published on
+          this site because the APTOS 2019 data is covered by Kaggle's competition rules.</p>
+      </div>
+      <div>
+        <div class="step-label">2 &middot; Result</div>
+        <div id="result"></div>
+      </div>
+    </div>
+    <div class="step-label">3 &middot; What the model saw and where it looked</div>
+    <div class="grid-3">
+      <figure class="imgbox"><figcaption>Original (cropped)</figcaption><canvas id="c-orig"></canvas></figure>
+      <figure class="imgbox"><figcaption>Model input</figcaption><canvas id="c-input"></canvas></figure>
+      <figure class="imgbox"><figcaption>Grad-CAM heat map</figcaption><canvas id="c-cam"></canvas></figure>
+    </div>
+  </section>
+
+  <!-- ================= Performance ================= -->
+  <section class="panel" id="panel-performance" hidden>
+    <div id="metrics"></div>
+    <div class="sub-h">Confusion matrix</div>
+    <img class="fig" src="assets/figures/15_confusion_matrix.png" alt="Confusion matrices on the test set" loading="lazy">
+    <div class="sub-h">Accuracy, loss and QWK during training</div>
+    <img class="fig" src="assets/figures/13_accuracy_loss_qwk_curves.png" alt="Training curves" loading="lazy">
+    <div class="sub-h">ROC curves and DR vs No DR confusion matrix</div>
+    <img class="fig" src="assets/figures/17_roc_binary.png" alt="ROC curves" loading="lazy">
+    <div class="sub-h">Precision, recall and F1 per stage</div>
+    <img class="fig" src="assets/figures/16_per_class_prf.png" alt="Per-stage precision recall F1" loading="lazy">
+  </section>
+
+  <!-- ================= How it works ================= -->
+  <section class="panel" id="panel-how" hidden>
+    <div id="how"></div>
+  </section>
+
+  <!-- ================= About ================= -->
+  <section class="panel" id="panel-about" hidden>
+    <div class="about">
+      <p><b>Project:</b> Diabetic Retinopathy Stage Detection using CNN transfer learning.<br>
+        <b>Module:</b> Computer Vision, BSc (Hons) Computer Science, National Institute of Business Management.</p>
+      <p><b>Data:</b> APTOS 2019 Blindness Detection (Kaggle): 3,662 retinal fundus photographs graded 0&ndash;4 by
+        clinicians, split 70 / 15 / 15 into training, validation and test sets.</p>
+      <p><b>Deployment:</b> the trained Keras model was converted to ONNX and runs in the browser with ONNX Runtime Web
+        (WebAssembly). The site is static, so it is hosted for free on Vercel, and the retinal image never leaves the
+        user's device, which protects patient privacy.</p>
+      <p><b>Limitations:</b> trained on one dataset from one region and one set of cameras; image quality and grader
+        disagreement affect the labels; the Mild and Severe stages have few examples and are the hardest to recognise.</p>
+      <div class="note warn"><b>Not a medical device.</b> This prototype was built for coursework. Its output must not be
+        used to diagnose or treat anyone. Anyone with diabetes should have regular eye examinations by a qualified
+        professional.</div>
+    </div>
+  </section>
+
+  <footer class="foot">Research prototype &middot; not for clinical use</footer>
+</div>
+
+<script src="vendor/ort.wasm.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
