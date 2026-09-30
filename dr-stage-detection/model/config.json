@@ -1,6 +1,7 @@
 {
+ "version": 4,
+ "backbone": "Ensemble (EfficientNetB0 + B3 + B4)",
  "img_size": 300,
- "backbone": "EfficientNetB0",
  "preprocess_mode": "raw",
  "class_names": [
   "No DR",
@@ -17,63 +18,117 @@
   2.5871468427410576,
   3.381793523919788
  ],
- "feature_shape": [
-  10,
-  10,
-  1280
+ "members": [
+  {
+   "name": "EfficientNetB0 (300px)",
+   "img_size": 300,
+   "size_mb": 16,
+   "onnx": [
+    "model/backbone.onnx"
+   ],
+   "head": "model/head.bin",
+   "head_dims": {
+    "in": 1280,
+    "hidden": 256,
+    "out": 5
+   },
+   "feature_shape": [
+    10,
+    10,
+    1280
+   ]
+  },
+  {
+   "name": "EfficientNetB3 (380px)",
+   "img_size": 380,
+   "size_mb": 43,
+   "onnx": [
+    "model/b3/backbone.part00.onnx",
+    "model/b3/backbone.part01.onnx",
+    "model/b3/backbone.part02.onnx"
+   ],
+   "head": "model/b3/head.bin",
+   "head_dims": {
+    "in": 1536,
+    "hidden": 256,
+    "out": 5
+   },
+   "feature_shape": [
+    12,
+    12,
+    1536
+   ]
+  },
+  {
+   "name": "EfficientNetB4 (380px)",
+   "img_size": 380,
+   "size_mb": 70,
+   "onnx": [
+    "model/b4/backbone.part00.onnx",
+    "model/b4/backbone.part01.onnx",
+    "model/b4/backbone.part02.onnx",
+    "model/b4/backbone.part03.onnx"
+   ],
+   "head": "model/b4/head.bin",
+   "head_dims": {
+    "in": 1792,
+    "hidden": 256,
+    "out": 5
+   },
+   "feature_shape": [
+    12,
+    12,
+    1792
+   ]
+  }
  ],
- "head": {
-  "in": 1280,
-  "hidden": 256,
-  "out": 5
- },
  "test_stage_metrics": {
-  "accuracy": 0.7890909090909091,
-  "macro_f1": 0.6323671245516461,
-  "qwk": 0.8789320073505567
+  "accuracy": 0.8036363636363636,
+  "macro_f1": 0.6439596348078103,
+  "qwk": 0.8765585755063648
  },
  "test_binary_metrics": {
-  "accuracy": 0.9690909090909091,
-  "sensitivity (recall)": 0.974910394265233,
-  "specificity": 0.9630996309963099,
-  "precision": 0.9645390070921985,
-  "f1": 0.9696969696969697,
-  "roc_auc": 0.9890224708698699
+  "accuracy": 0.9781818181818182,
+  "sensitivity (recall)": 0.978494623655914,
+  "specificity": 0.977859778597786,
+  "precision": 0.978494623655914,
+  "f1": 0.978494623655914,
+  "roc_auc": 0.995820603367324
  },
  "per_class": [
   {
    "stage": 0,
-   "precision": 0.9636,
+   "precision": 0.9707,
    "recall": 0.9779,
-   "f1": 0.9707,
+   "f1": 0.9743,
    "support": 271
   },
   {
    "stage": 1,
-   "precision": 0.5,
-   "recall": 0.5893,
-   "f1": 0.541,
+   "precision": 0.4872,
+   "recall": 0.6786,
+   "f1": 0.5672,
    "support": 56
   },
   {
    "stage": 2,
-   "precision": 0.7692,
-   "recall": 0.6667,
-   "f1": 0.7143,
+   "precision": 0.8217,
+   "recall": 0.7067,
+   "f1": 0.7599,
    "support": 150
   },
   {
    "stage": 3,
-   "precision": 0.3784,
+   "precision": 0.4,
    "recall": 0.4828,
-   "f1": 0.4242,
+   "f1": 0.4375,
    "support": 29
   },
   {
    "stage": 4,
-   "precision": 0.5238,
-   "recall": 0.5,
-   "f1": 0.5116,
+   "precision": 0.5429,
+   "recall": 0.4318,
+   "f1": 0.481,
    "support": 44
   }
  ],
