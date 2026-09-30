@@ -1,6 +1,9 @@
 {
   "headers": [
-    { "source": "/model/(.*)", "headers": [{ "key": "Cache-Control", "value": "public, max-age=604800" }] },
+    { "source": "/model/b3/(.*)", "headers": [{ "key": "Cache-Control", "value": "public, max-age=604800" }] },
+    { "source": "/model/b4/(.*)", "headers": [{ "key": "Cache-Control", "value": "public, max-age=604800" }] },
+    { "source": "/model/backbone.onnx", "headers": [{ "key": "Cache-Control", "value": "public, max-age=604800" }] },
+    { "source": "/model/config.json", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
     { "source": "/vendor/(.*)", "headers": [{ "key": "Cache-Control", "value": "public, max-age=604800" }] }
   ]
 }

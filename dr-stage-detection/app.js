@@ -52,7 +52,7 @@ async function fetchJoined(urls) {
 // ------------------------------------------------------------------ loading
 async function init() {
   try {
-    CFG = await (await fetch("model/config.json")).json();
+    CFG = await (await fetch("model/config.json", { cache: "no-cache" })).json();   // always the newest settings
     renderChips(); renderMetrics(); renderHow(); showPlaceholder();
 
     ort.env.wasm.wasmPaths = new URL("vendor/", location.href).href;
