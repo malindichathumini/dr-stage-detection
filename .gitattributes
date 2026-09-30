@@ -1,0 +1,2 @@
+# Language statistics: count the code files, not the large executed notebook output
+*.ipynb linguist-detectable=false

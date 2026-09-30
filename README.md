@@ -10,10 +10,8 @@ and a web prototype that runs entirely in the browser.
 |---|---|
 | Live website (runs in your browser) | https://dr-stage-detection.vercel.app |
 | Code (this repository) | https://github.com/malindichathumini/dr-stage-detection |
-| Final results notebook: test evaluation (Kaggle) | https://www.kaggle.com/code/malindichathumini/dr-stage-detection-final-results |
-| Experiments notebook: all 4 experiments + training (Kaggle) | https://www.kaggle.com/code/malindichathumini/dr-stage-detection-experiments |
-| Ensemble notebook, Version 3 (Kaggle) | https://www.kaggle.com/code/malindichathumini/dr-stage-detection-ensemble-v3 |
-| Ensemble notebook, Version 4: final model (Kaggle) | https://www.kaggle.com/code/malindichathumini/dr-stage-detection-ensemble-v4 |
+| **Final notebook: Version 4 ensemble, 80.4% (Kaggle)** | https://www.kaggle.com/code/malindichathumini/dr-stage-detection-ensemble-v4 |
+| Experiments notebook: backbone, hyperparameter, preprocessing and balancing comparisons (Kaggle) | https://www.kaggle.com/code/malindichathumini/dr-stage-detection-experiments |
 | Video demonstration | https://YOUR-VIDEO-LINK |
 
 NIBM · BSc (Hons) Computer Science · Computer Vision · Coursework 1
@@ -50,6 +48,15 @@ Final model (Version 4): ensemble of EfficientNetB0 (300 px), EfficientNetB3 (38
 Every choice (backbone, preprocessing, balancing, inference method, ensemble members) was made on the
 validation set; the test set was used once per version. V4 has the best accuracy and Mild recall; V3 has a
 slightly higher macro F1 and QWK, so the gain from V3 to V4 is a trade-off rather than a strict improvement.
+
+## Technologies used
+
+| Area | Tools |
+|---|---|
+| Model training | Python, TensorFlow / Keras (EfficientNetB0/B3/B4, ResNet50V2, MobileNetV2), scikit-learn, OpenCV, NumPy, pandas, Matplotlib (Kaggle, NVIDIA T4 GPU) |
+| Web prototype | HTML, CSS, JavaScript, ONNX Runtime Web (WebAssembly), hosted on Vercel |
+| Desktop prototype | Python, Gradio |
+| Model conversion | tf2onnx, ONNX |
 
 ## Repository layout
 
