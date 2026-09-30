@@ -1,10 +1,14 @@
 /*
- * Diabetic Retinopathy Stage Detection - in-browser inference
- * -----------------------------------------------------------
- * The EfficientNetB0 backbone runs as an ONNX model in ONNX Runtime Web (WebAssembly).
- * The small classification head (GAP -> Dense 256 ReLU -> Dense 5 softmax) and Grad-CAM are
- * computed here in JavaScript from the exported weights (model/head.bin), which gives exactly
- * the same probabilities as the Keras model. Nothing is uploaded: the image stays on the device.
+ * Diabetic Retinopathy Stage Detection - in-browser inference (Version 4: ensemble of 3 CNNs)
+ * -----------------------------------------------------------------------------------------
+ * Every model in the ensemble is split in two:
+ *   - its EfficientNet backbone runs as an ONNX model in ONNX Runtime Web (WebAssembly);
+ *     large backbones are stored as several parts under 25 MB and joined here after download;
+ *   - its small classification head (GAP -> Dense 256 ReLU -> Dense 5 softmax) and Grad-CAM are
+ *     computed here in JavaScript from the exported weights (head.bin).
+ * Each model gets the image at its own input size (300 or 380 px), the stage probabilities of the
+ * models are averaged, and the Grad-CAM maps are averaged. Nothing is uploaded: the image stays on
+ * the device.
  */
 "use strict";
 
@@ -22,7 +26,28 @@ const STAGES = [
 ];
 
 const $ = (id) => document.getElementById(id);
-let CFG = null, HEAD = null, SESSION = null, INPUT_NAME = null, currentImage = null;
+let CFG = null, MEMBERS = [], READY = false, currentImage = null;
+
+// Older single-model config (Version 2) -> list with one member
+function memberList(cfg) {
+  if (cfg.members) return cfg.members;
+  return [{ name: cfg.backbone, img_size: cfg.img_size, onnx: ["model/backbone.onnx"], head: "model/head.bin",
+            head_dims: cfg.head, feature_shape: cfg.feature_shape }];
+}
+
+async function fetchBytes(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
+  return new Uint8Array(await r.arrayBuffer());
+}
+
+async function fetchJoined(urls) {
+  // download all parts of one ONNX file and join them into one buffer
+  const parts = await Promise.all(urls.map(fetchBytes));
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let o = 0; for (const p of parts) { out.set(p, o); o += p.length; }
+  return out;
+}
 
 // ------------------------------------------------------------------ loading
 async function init() {
@@ -30,18 +55,24 @@ async function init() {
     CFG = await (await fetch("model/config.json")).json();
     renderChips(); renderMetrics(); renderHow(); showPlaceholder();
 
-    const buf = await (await fetch("model/head.bin")).arrayBuffer();
-    const all = new Float32Array(buf);
-    const { in: nIn, hidden: nH, out: nOut } = CFG.head;
-    let o = 0;
-    const take = (n) => { const a = all.subarray(o, o + n); o += n; return a; };
-    HEAD = { W1: take(nIn * nH), b1: take(nH), W2: take(nH * nOut), b2: take(nOut), nIn, nH, nOut };
-
     ort.env.wasm.wasmPaths = new URL("vendor/", location.href).href;
-    ort.env.wasm.numThreads = 1;
-    SESSION = await ort.InferenceSession.create("model/backbone.onnx", { executionProviders: ["wasm"] });
-    INPUT_NAME = SESSION.inputNames[0];
-    setStatus("ok", "Model ready. Runs on your device; the image is never uploaded.");
+    // several threads only when the page is cross-origin isolated (see vercel.json), otherwise one
+    ort.env.wasm.numThreads = self.crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 1) : 1;
+
+    const list = memberList(CFG);
+    for (let i = 0; i < list.length; i++) {
+      const m = list[i];
+      setStatus("", `Loading model ${i + 1} of ${list.length}: ${m.name} (${m.size_mb || "?"} MB, only the first time)…`);
+      const all = new Float32Array((await fetchBytes(m.head)).buffer);
+      const { in: nIn, hidden: nH, out: nOut } = m.head_dims;
+      let o = 0;
+      const take = (n) => { const a = all.subarray(o, o + n); o += n; return a; };
+      const head = { W1: take(nIn * nH), b1: take(nH), W2: take(nH * nOut), b2: take(nOut), nIn, nH, nOut };
+      const session = await ort.InferenceSession.create(await fetchJoined(m.onnx), { executionProviders: ["wasm"] });
+      MEMBERS.push({ ...m, head, session, inputName: session.inputNames[0] });
+    }
+    READY = true;
+    setStatus("ok", `${MEMBERS.length > 1 ? "All " + MEMBERS.length + " models" : "Model"} ready. Runs on your device; the image is never uploaded.`);
     $("analyse").disabled = !currentImage;
   } catch (e) {
     console.error(e);
@@ -62,7 +93,7 @@ function loadFile(file) {
   img.onload = () => {
     currentImage = img;
     $("preview").src = url; $("preview").hidden = false; $("drop-empty").hidden = true;
-    $("analyse").disabled = !SESSION;
+    $("analyse").disabled = !READY;
     showPlaceholder(); clearCanvases();
   };
   img.src = url;
@@ -181,13 +212,13 @@ function flipped(rgb, S, lr, ud) {
   return out;
 }
 
-async function features(rgbFloat, S) {
+async function features(member, rgbFloat, S) {
   const t = new ort.Tensor("float32", rgbFloat, [1, S, S, 3]);
-  const res = await SESSION.run({ [INPUT_NAME]: t });
-  return res[SESSION.outputNames[0]].data;          // [1, 10, 10, 1280] NHWC
+  const res = await member.session.run({ [member.inputName]: t });
+  return res[member.session.outputNames[0]].data;   // [1, h, w, channels] NHWC, e.g. 10x10x1280 for B0
 }
 
-function head(feat) {
+function head(HEAD, feat) {
   const { W1, b1, W2, b2, nIn, nH, nOut } = HEAD;
   const P = feat.length / nIn;
   const g = new Float32Array(nIn);
@@ -203,15 +234,15 @@ function head(feat) {
   return { probs: Array.from(e, (v) => v / sum), h };
 }
 
-function gradCam(feat, probs, h, cls) {
+function gradCam(member, feat, probs, h, cls) {
   // Grad-CAM with gradients derived analytically through the dense head (identical to the TF version)
-  const { W1, W2, nIn, nH, nOut } = HEAD;
+  const { W1, W2, nIn, nH, nOut } = member.head;
   const dz = probs.map((p, j) => probs[cls] * ((j === cls ? 1 : 0) - p));   // d softmax_c / d logits
   const dh = new Float64Array(nH);
   for (let i = 0; i < nH; i++) { if (h[i] <= 0) continue; let s = 0; for (let j = 0; j < nOut; j++) s += W2[i * nOut + j] * dz[j]; dh[i] = s; }
   const w = new Float64Array(nIn);                     // channel weights
   for (let k = 0; k < nIn; k++) { let s = 0; const row = k * nH; for (let i = 0; i < nH; i++) s += W1[row + i] * dh[i]; w[k] = s; }
-  const [fh, fw] = CFG.feature_shape;
+  const [fh, fw] = member.feature_shape;
   const cam = new Float64Array(fh * fw); let mx = 0;
   for (let p = 0; p < fh * fw; p++) { let s = 0; for (let k = 0; k < nIn; k++) s += feat[p * nIn + k] * w[k]; cam[p] = Math.max(0, s); mx = Math.max(mx, cam[p]); }
   for (let p = 0; p < cam.length; p++) cam[p] /= (mx + 1e-8);
@@ -239,16 +270,24 @@ function drawRGB(canvas, rgb, S) {
   ctx.putImageData(id, 0, 0);
 }
 
-function drawCam(canvas, rgb, S, { cam, fh, fw }) {
-  canvas.width = canvas.height = S;
-  const ctx = canvas.getContext("2d"), id = ctx.createImageData(S, S);
+function upsample({ cam, fh, fw }, S) {
+  // bilinear upsampling of a small CAM (e.g. 10x10) to S x S (pixel-centre aligned, like cv2.resize)
+  const out = new Float32Array(S * S);
   for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
-    // bilinear upsampling of the 10x10 map (pixel-centre aligned, like cv2.resize)
     const fy = Math.min(Math.max((y + 0.5) * fh / S - 0.5, 0), fh - 1), fx = Math.min(Math.max((x + 0.5) * fw / S - 0.5, 0), fw - 1);
     const y0 = Math.floor(fy), x0 = Math.floor(fx), y1 = Math.min(y0 + 1, fh - 1), x1 = Math.min(x0 + 1, fw - 1);
     const ay = fy - y0, ax = fx - x0;
-    const v = (1 - ay) * ((1 - ax) * cam[y0 * fw + x0] + ax * cam[y0 * fw + x1]) + ay * ((1 - ax) * cam[y1 * fw + x0] + ax * cam[y1 * fw + x1]);
-    const [r, g, b] = jet(v), i = y * S + x;
+    out[y * S + x] = (1 - ay) * ((1 - ax) * cam[y0 * fw + x0] + ax * cam[y0 * fw + x1]) + ay * ((1 - ax) * cam[y1 * fw + x0] + ax * cam[y1 * fw + x1]);
+  }
+  return out;
+}
+
+function drawCam(canvas, rgb, S, full) {
+  // full: S x S heat values in [0, 1]
+  canvas.width = canvas.height = S;
+  const ctx = canvas.getContext("2d"), id = ctx.createImageData(S, S);
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const i = y * S + x, [r, g, b] = jet(full[i]);
     id.data[i * 4] = 0.55 * rgb[i * 3] + 0.45 * r;
     id.data[i * 4 + 1] = 0.55 * rgb[i * 3 + 1] + 0.45 * g;
     id.data[i * 4 + 2] = 0.55 * rgb[i * 3 + 2] + 0.45 * b;
@@ -270,29 +309,53 @@ function clearCanvases() {
 
 // ------------------------------------------------------------------ main action
 async function analyse() {
-  if (!currentImage || !SESSION) return;
+  if (!currentImage || !READY) return;
   $("analyse").disabled = true; $("analyse").textContent = "Analysing…";
   await new Promise((r) => setTimeout(r, 20));        // let the button repaint
   try {
-    const t0 = performance.now(), S = CFG.img_size;
-    const pre = preprocess(readPixels(currentImage), S);
-    const views = CFG.tta ? [[0, 0], [1, 0], [0, 1], [1, 1]] : [[0, 0]];
-    let probs = null, featMain = null, hMain = null;
-    for (const [lr, ud] of views) {
-      const f = await features(flipped(pre.rgb, S, lr, ud), S);
-      const r = head(f);
-      if (!featMain) { featMain = f; hMain = r.h; }
-      probs = probs ? probs.map((p, i) => p + r.probs[i]) : r.probs;
+    const t0 = performance.now();
+    const px = readPixels(currentImage);
+    const pres = {};                                   // one preprocessed image per input size
+    for (const m of MEMBERS) if (!pres[m.img_size]) pres[m.img_size] = preprocess(px, m.img_size);
+    const views = tta() ? [[0, 0], [1, 0], [0, 1], [1, 1]] : [[0, 0]];
+
+    // 1. every model predicts; its probabilities are averaged over the views
+    const runs = [];
+    for (let i = 0; i < MEMBERS.length; i++) {
+      const m = MEMBERS[i], S = m.img_size, pre = pres[S];
+      $("analyse").textContent = `Analysing… model ${i + 1} of ${MEMBERS.length}`;
+      await new Promise((r) => setTimeout(r, 0));
+      let p = null, feat0 = null, h0 = null, p0 = null;
+      for (const [lr, ud] of views) {
+        const f = await features(m, flipped(pre.rgb, S, lr, ud), S);
+        const r = head(m.head, f);
+        if (!feat0) { feat0 = f; h0 = r.h; p0 = r.probs; }
+        p = p ? p.map((v, k) => v + r.probs[k]) : r.probs;
+      }
+      runs.push({ m, probs: p.map((v) => v / views.length), feat0, h0, p0 });
     }
-    probs = probs.map((p) => p / views.length);
+
+    // 2. ensemble = mean of the models' probabilities
+    const probs = runs[0].probs.map((_, k) => runs.reduce((a, r) => a + r.probs[k], 0) / runs.length);
     const stage = decide(probs);
-    const argmaxCls = probs.indexOf(Math.max(...probs));
-    const camData = gradCam(featMain, head(featMain).probs, hMain, argmaxCls);
-    drawOriginal($("c-orig"), currentImage, pre);
-    drawRGB($("c-input"), pre.rgb, S);
-    drawCam($("c-cam"), pre.rgb, S, camData);
-    $("result").innerHTML = resultCard(probs, stage, (performance.now() - t0) / 1000);
+    const cls = probs.indexOf(Math.max(...probs));
+
+    // 3. Grad-CAM of every model for the ensemble's stage, shown on the largest input and averaged
+    const D = Math.max(...Object.keys(pres).map(Number)), show = pres[D];
+    const heat = new Float32Array(D * D);
+    for (const r of runs) {
+      const up = upsample(gradCam(r.m, r.feat0, r.p0, r.h0, cls), D);
+      for (let i = 0; i < heat.length; i++) heat[i] += up[i];
+    }
+    let mx = 0; for (const v of heat) mx = Math.max(mx, v);
+    for (let i = 0; i < heat.length; i++) heat[i] /= (mx + 1e-8);
+
+    drawOriginal($("c-orig"), currentImage, show);
+    drawRGB($("c-input"), show.rgb, D);
+    drawCam($("c-cam"), show.rgb, D, heat);
+    $("result").innerHTML = resultCard(probs, stage, (performance.now() - t0) / 1000, runs);
     document.body.dataset.probs = JSON.stringify(probs);        // used by automated tests
+    document.body.dataset.memberProbs = JSON.stringify(runs.map((r) => r.probs));
   } catch (e) {
     console.error(e);
     $("result").innerHTML = `<div class="rc rc-empty"><div class="rc-empty-title">Could not analyse this image</div>
@@ -313,7 +376,23 @@ function showPlaceholder() {
     probability of each stage and a heat map of where the model looked will appear here.</div></div>`;
 }
 
-function resultCard(probs, stage, seconds) {
+const tta = () => (CFG.ensemble_tta !== undefined ? CFG.ensemble_tta : CFG.tta);
+const modelLabel = () => (MEMBERS.length > 1 || (CFG.members || []).length > 1 ? `Ensemble of ${memberList(CFG).length} CNNs` : CFG.backbone);
+const sizeLabel = () => [...new Set(memberList(CFG).map((m) => m.img_size))].sort().map((s) => s + "px").join(" / ");
+
+function membersTable(runs, stage) {
+  // how each model in the ensemble voted
+  if (!runs || runs.length < 2) return "";
+  const rows = runs.map((r) => {
+    const s = r.probs.indexOf(Math.max(...r.probs));
+    return `<tr><td>${escapeHtml(r.m.name)}</td><td>${r.m.img_size}px</td><td>${s} &middot; ${STAGES[s][0]}</td><td>${pct(r.probs[stage])}</td></tr>`;
+  }).join("");
+  return `<div class="rc-sec">How each model in the ensemble voted</div>
+    <div class="tbl-wrap"><table class="tbl members"><thead><tr><th>Model</th><th>Input</th><th>Its stage</th><th>P(stage ${stage})</th></tr></thead>
+    <tbody>${rows}</tbody></table></div>`;
+}
+
+function resultCard(probs, stage, seconds, runs) {
   const [name, desc, action, colour] = STAGES[stage];
   const pDr = 1 - probs[0], dr = pDr >= 0.5;
   const scale = STAGES.map((s, i) => `<div class="seg${i === stage ? " on" : ""}" style="--c:${s[3]}">
@@ -333,16 +412,17 @@ function resultCard(probs, stage, seconds) {
     </div>
     <div class="rc-sec">Severity scale</div><div class="scale">${scale}</div>
     <div class="rc-sec">Probability of each stage</div><div class="bars">${bars}</div>
+    ${membersTable(runs, stage)}
     <div class="rc-action"><b>Suggested next step:</b> ${action}</div>
     <div class="rc-foot">Research prototype for coursework. It is not a medical device and must not be used for
-      diagnosis. Model: ${CFG.backbone} &middot; input ${CFG.img_size}&times;${CFG.img_size}px &middot;
-      preprocessing: ${CFG.preprocess_mode} &middot; TTA: ${CFG.tta ? "on" : "off"} &middot; decision: ${CFG.decision}</div>
+      diagnosis. Model: ${modelLabel()} &middot; input ${sizeLabel()} &middot;
+      preprocessing: ${CFG.preprocess_mode} &middot; TTA: ${tta() ? "on" : "off"} &middot; decision: ${CFG.decision}</div>
   </div>`;
 }
 
 function renderChips() {
   const m = CFG.test_stage_metrics;
-  const chips = [`Model: ${CFG.backbone}`, `Input: ${CFG.img_size}×${CFG.img_size}px`, "Dataset: APTOS 2019 (3,662 images)",
+  const chips = [`Model: ${modelLabel()}`, `Input: ${sizeLabel()}`, "Dataset: APTOS 2019 (3,662 images)",
     `Test accuracy: ${pct(m.accuracy)}`, `QWK: ${m.qwk.toFixed(3)}`, "Private: runs on your device"];
   $("chips").innerHTML = chips.map((c) => `<span class="chip">${c}</span>`).join("");
 }
@@ -367,15 +447,19 @@ function renderMetrics() {
 }
 
 function renderHow() {
-  const S = CFG.img_size;
+  const list = memberList(CFG), multi = list.length > 1;
   const steps = [
-    ["Crop and resize", `The black border is cropped, the image is padded to a square and resized to ${S}×${S} pixels with area interpolation, exactly as in training.`],
+    ["Crop and resize", `The black border is cropped, the image is padded to a square and resized to ${multi ? "the input size of each model (" + sizeLabel() + ")" : sizeLabel()} with area interpolation, exactly as in training.`],
     ["Preprocess", CFG.preprocess_mode === "raw"
       ? "The image is passed on without enhancement: in the notebook's full-training comparison this scored best, because EfficientNet normalises the pixels itself."
       : `Preprocessing mode: ${CFG.preprocess_mode}.`],
-    ["Extract features", `The ImageNet-pretrained ${CFG.backbone}, fine-tuned on APTOS 2019, runs in your browser (ONNX Runtime Web, WebAssembly) and produces a 10×10×1280 feature map.`],
-    ["Classify", "Global average pooling, a 256-unit ReLU layer and a 5-way softmax give the probability of each stage; the most likely stage is reported."],
-    ["Explain", "Grad-CAM weights each feature channel by the gradient of the predicted stage and highlights the image regions that most influenced the decision."],
+    ["Extract features", multi
+      ? `${list.length} ImageNet-pretrained CNNs fine-tuned on APTOS 2019 (${list.map((m) => escapeHtml(m.name)).join(", ")}) run in your browser (ONNX Runtime Web, WebAssembly). Each produces a feature map, for example 10×10×1280 for B0.`
+      : `The ImageNet-pretrained ${CFG.backbone}, fine-tuned on APTOS 2019, runs in your browser (ONNX Runtime Web, WebAssembly) and produces a 10×10×1280 feature map.`],
+    ["Classify", "In each model, global average pooling, a 256-unit ReLU layer and a 5-way softmax give the probability of each stage." +
+      (multi ? " The models' probabilities are averaged (this combination was chosen on the validation set only) and the most likely stage is reported." : " The most likely stage is reported.")],
+    ["Explain", "Grad-CAM weights each feature channel by the gradient of the predicted stage and highlights the image regions that most influenced the decision." +
+      (multi ? " The heat maps of all models are averaged." : "")],
   ].map(([t, d], i) => `<div class="step"><span class="step-n">${i + 1}</span><div><b>${t}</b><br>${d}</div></div>`).join("");
   const rows = STAGES.map((s, i) => `<tr><td><span class="dot" style="--c:${s[3]}"></span>${i}</td><td>${s[0]}</td><td>${s[1]}</td><td>${s[2]}</td></tr>`).join("");
   $("how").innerHTML = `<div class="steps">${steps}</div>

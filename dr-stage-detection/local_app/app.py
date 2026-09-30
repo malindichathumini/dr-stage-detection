@@ -8,8 +8,13 @@ Upload a retinal fundus photograph and the app shows:
   * the model's measured performance on the held-out test set
 
 Files needed in the same folder (all produced by the Kaggle notebook, in dr_outputs.zip):
-  dr_model.keras, dr_config.json                      (required)
+  dr_config.json and every model it lists             (required)
+      single model : dr_model.keras
+      ensemble     : dr_model.keras, dr_model_member1.keras, dr_model_member2.keras (Version 4)
   results.json, classification_report.csv, figures/, examples/   (optional, shown in the app)
+
+Version 4 uses an ensemble of three CNNs (EfficientNetB0 at 300 px, EfficientNetB3 and EfficientNetB4 at
+380 px). Each model gets the image at its own input size and the stage probabilities are averaged.
 
 Run:  python app.py      (or double-click start_app.bat on Windows)
 """
@@ -38,7 +43,22 @@ USE_TTA = CONFIG.get("tta", False)                  # average predictions over f
 DECISION = CONFIG.get("decision", "argmax")         # "argmax" or "thresholds"
 THRESHOLDS = np.array(CONFIG.get("thresholds", [0.5, 1.5, 2.5, 3.5]))
 BACKBONE = CONFIG.get("backbone", "CNN")
-model = keras.models.load_model(os.path.join(HERE, "dr_model.keras"))
+
+# Each entry: (display name, Keras model, input size in pixels)
+ENSEMBLE = CONFIG.get("ensemble")
+if ENSEMBLE:                                         # Version 4: several models, possibly different sizes
+    USE_TTA = ENSEMBLE.get("tta", USE_TTA)
+    MODELS = []
+    for member in ENSEMBLE["members"]:
+        print(f"Loading {member['name']} ({member['file']}) ...")
+        MODELS.append((member["name"], keras.models.load_model(os.path.join(HERE, member["file"])),
+                       int(member.get("img_size", IMG_SIZE))))
+    MODEL_LABEL = f"Ensemble of {len(MODELS)} CNNs"
+    SIZES_LABEL = " / ".join(sorted({f"{s}px" for _, _, s in MODELS}))
+else:                                                # Version 1-2: one model
+    MODELS = [(BACKBONE, keras.models.load_model(os.path.join(HERE, "dr_model.keras")), IMG_SIZE)]
+    MODEL_LABEL = BACKBONE
+    SIZES_LABEL = f"{IMG_SIZE}px"
 
 RESULTS = None
 if os.path.exists(os.path.join(HERE, "results.json")):
@@ -106,9 +126,9 @@ def circular_mask(img, scale=0.96):
     return img * mask[..., None]
 
 
-def preprocess(img_rgb):
+def preprocess(img_rgb, size=IMG_SIZE):
     img = pad_to_square(crop_black_borders(img_rgb))
-    img = cv2.resize(img, (IMG_SIZE, IMG_SIZE), interpolation=cv2.INTER_AREA)
+    img = cv2.resize(img, (size, size), interpolation=cv2.INTER_AREA)
     if MODE == "raw":
         return img
     img = cv2.medianBlur(img, 3)
@@ -119,7 +139,8 @@ def preprocess(img_rgb):
 # ---------------------------------------------------------------------------------------------
 # 3. Grad-CAM and prediction: same method as the notebook
 # ---------------------------------------------------------------------------------------------
-def grad_cam(img_uint8):
+def cam_for_model(model, img_uint8, cls):
+    # Grad-CAM for one model: gradients of the chosen stage w.r.t. the backbone's last feature map
     base_layer = next(l for l in model.layers if isinstance(l, keras.Model))
     pos = model.layers.index(base_layer)
     x = tf.convert_to_tensor(img_uint8[None].astype("float32"))
@@ -132,19 +153,31 @@ def grad_cam(img_uint8):
         h = conv
         for layer in model.layers[pos + 1:]:
             h = layer(h, training=False)
-        cls = int(tf.argmax(h[0]))
         score = h[:, cls]
     grads = tape.gradient(score, conv)
     weights = tf.reduce_mean(grads, axis=(0, 1, 2))
     cam = tf.nn.relu(tf.reduce_sum(conv[0] * weights, axis=-1)).numpy()
-    cam = cv2.resize(cam / (cam.max() + 1e-8), (img_uint8.shape[1], img_uint8.shape[0]))
+    return cam / (cam.max() + 1e-8)
+
+
+def grad_cam(inputs, cls, show_img):
+    # Ensemble Grad-CAM: each model's map (for the ensemble's stage) resized to the display size and averaged
+    size = (show_img.shape[1], show_img.shape[0])
+    cams = [cv2.resize(cam_for_model(m, inputs[s], cls), size) for _, m, s in MODELS]
+    cam = np.mean(cams, axis=0)
+    cam = cam / (cam.max() + 1e-8)
     heat = cv2.cvtColor(cv2.applyColorMap(np.uint8(255 * cam), cv2.COLORMAP_JET), cv2.COLOR_BGR2RGB)
-    return cv2.addWeighted(img_uint8, 0.55, heat, 0.45, 0)
+    return cv2.addWeighted(show_img, 0.55, heat, 0.45, 0)
 
 
-def stage_probabilities(pre):
-    batch = np.stack([pre, pre[:, ::-1], pre[::-1], pre[::-1, ::-1]]) if USE_TTA else pre[None]
-    return model.predict(batch.astype("float32"), verbose=0).mean(0)
+def stage_probabilities(inputs):
+    # inputs: {size: preprocessed image}. Returns the averaged probabilities and each model's own probabilities
+    member_probs = []
+    for _, model, size in MODELS:
+        pre = inputs[size]
+        batch = np.stack([pre, pre[:, ::-1], pre[::-1], pre[::-1, ::-1]]) if USE_TTA else pre[None]
+        member_probs.append(model.predict(batch.astype("float32"), verbose=0).mean(0))
+    return np.mean(member_probs, axis=0), member_probs
 
 
 def decide(probs):
@@ -173,7 +206,20 @@ def error_card(message):
                <div class="rc-empty-text">{html.escape(message)}</div></div>"""
 
 
-def result_card(probs, stage, seconds):
+def members_table(member_probs, stage):
+    # Shows how each model in the ensemble voted, so the averaging is visible
+    if len(MODELS) < 2:
+        return ""
+    rows = "".join(
+        f'<tr><td>{html.escape(n)}</td><td>{s}px</td><td>{int(np.argmax(p))} &middot; {STAGES[int(np.argmax(p))][0]}</td>'
+        f'<td>{p[stage] * 100:.1f}%</td></tr>'
+        for (n, _, s), p in zip(MODELS, member_probs))
+    return f"""<div class="rc-sec">How each model in the ensemble voted</div>
+      <div class="tbl-wrap"><table class="tbl members"><thead><tr><th>Model</th><th>Input</th><th>Its stage</th>
+      <th>P(stage {stage})</th></tr></thead><tbody>{rows}</tbody></table></div>"""
+
+
+def result_card(probs, stage, seconds, member_probs=()):
     name, desc, action, colour = STAGES[stage]
     p_dr = float(1 - probs[0])
     dr = p_dr >= 0.5
@@ -208,9 +254,10 @@ def result_card(probs, stage, seconds):
       <div class="scale">{scale}</div>
       <div class="rc-sec">Probability of each stage</div>
       <div class="bars">{bars}</div>
+      {members_table(member_probs, stage)}
       <div class="rc-action"><b>Suggested next step:</b> {action}</div>
       <div class="rc-foot">Research prototype for coursework. It is not a medical device and must not be used
-      for diagnosis. Model: {BACKBONE} &middot; input {IMG_SIZE}&times;{IMG_SIZE}px &middot; preprocessing: {MODE}
+      for diagnosis. Model: {MODEL_LABEL} &middot; input {SIZES_LABEL} &middot; preprocessing: {MODE}
       &middot; TTA: {'on' if USE_TTA else 'off'} &middot; decision: {DECISION}</div>
     </div>"""
 
@@ -225,11 +272,12 @@ def analyse(image):
         t0 = time.time()
         img = image[..., :3].astype(np.uint8) if image.ndim == 3 else cv2.cvtColor(image.astype(np.uint8), cv2.COLOR_GRAY2RGB)
         cropped = pad_to_square(crop_black_borders(img))
-        pre = preprocess(img)
-        probs = stage_probabilities(pre)
+        inputs = {s: preprocess(img, s) for s in {size for _, _, size in MODELS}}   # one image per input size
+        probs, member_probs = stage_probabilities(inputs)
         stage = decide(probs)
-        overlay = grad_cam(pre)
-        return result_card(probs, stage, time.time() - t0), cropped, pre, overlay
+        show = inputs[max(inputs)]                                   # largest input is shown and overlaid
+        overlay = grad_cam(inputs, stage, show)
+        return result_card(probs, stage, time.time() - t0, member_probs), cropped, show, overlay
     except Exception as exc:                        # show the problem in the app instead of crashing
         return error_card(str(exc)), None, None, None
 
@@ -246,7 +294,7 @@ def pct(v):
 
 
 def header_html():
-    chips = [f"Model: {BACKBONE}", f"Input: {IMG_SIZE}&times;{IMG_SIZE}px", "Dataset: APTOS 2019 (3,662 images)"]
+    chips = [f"Model: {MODEL_LABEL}", f"Input: {SIZES_LABEL}", "Dataset: APTOS 2019 (3,662 images)"]
     if RESULTS:
         m = RESULTS["test_stage_metrics"]
         chips += [f"Test accuracy: {pct(m['accuracy'])}", f"QWK: {m['qwk']:.3f}"]
@@ -305,20 +353,26 @@ def find_figure(*patterns):
 def how_it_works_html():
     steps = [
         ("1", "Crop and resize", f"The black border is cropped, the image is padded to a square and resized to "
-                                 f"{IMG_SIZE}&times;{IMG_SIZE} pixels."),
+                                 f"the input size of each model ({SIZES_LABEL}) with area interpolation."),
         ("2", "Preprocess", {"raw": "The image is passed on without enhancement: in the notebook's full-training "
                                      "comparison this scored best, because EfficientNet normalises the pixels itself.",
                              "clahe_unsharp": "Median denoising, CLAHE contrast enhancement and unsharp-mask edge "
                                               "enhancement make small lesions stand out.",
                              "ben_graham": "Local average colour is subtracted (Ben Graham's method) to even out "
                                            "lighting and highlight lesions."}.get(MODE, MODE)),
-        ("3", "Classify", f"An ImageNet-pretrained {BACKBONE}, fine-tuned on APTOS 2019, outputs a probability "
-                          f"for each of the 5 stages" + (" (averaged over 4 flipped views)." if USE_TTA else ".")),
+        ("3", "Classify", (f"An ImageNet-pretrained {BACKBONE}, fine-tuned on APTOS 2019, outputs a probability "
+                           f"for each of the 5 stages" if len(MODELS) == 1 else
+                           "Three ImageNet-pretrained CNNs fine-tuned on APTOS 2019 ("
+                           + ", ".join(f"{html.escape(n)}" for n, _, _ in MODELS)
+                           + ") each output a probability for every stage, and the three are averaged. The "
+                             "combination was chosen on the validation set only")
+                          + (" (averaged over 4 flipped views)." if USE_TTA else ".")),
         ("4", "Decide", "The most likely stage is reported. Any-DR probability = 1 &minus; P(No DR)."
                         if DECISION == "argmax" else "Stage thresholds tuned on the validation set turn the "
                                                       "expected grade into a stage."),
         ("5", "Explain", "Grad-CAM uses the gradients of the predicted stage to highlight the image regions "
-                         "that most influenced the decision."),
+                         "that most influenced the decision" + ("; the maps of all models are averaged."
+                                                                if len(MODELS) > 1 else ".")),
     ]
     step_html = "".join(f'<div class="step"><span class="step-n">{n}</span><div><b>{t}</b><br>{d}</div></div>'
                         for n, t, d in steps)
@@ -415,6 +469,8 @@ footer {display: none !important;}
 .tbl td:first-child {white-space: nowrap;}
 #examples .grid-container {grid-template-columns: repeat(5, minmax(0, 1fr)) !important;}
 #examples .caption-label, #examples figcaption {font-size: 12px;}
+.members {margin-bottom: 16px;}
+.members td, .members th {padding: 6px 10px;}
 .dot {display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--c); margin-right: 8px;}
 .steps {display: grid; gap: 10px; margin-bottom: 8px;}
 .step {display: flex; gap: 12px; align-items: flex-start; border: 1px solid var(--border-color-primary);
@@ -479,7 +535,8 @@ with gr.Blocks(title="DR Stage Detection") as demo:
         # ---------------- Tab 2: model performance ----------------
         with gr.Tab("Model performance"):
             gr.HTML(metrics_html())
-            figs = [("Confusion matrix", find_figure("*confusion_matrix*.png")),
+            figs = [("Ensemble selection on the validation set", find_figure("*ensemble_selection*.png")),
+                    ("Confusion matrix", find_figure("*confusion_matrix*.png")),
                     ("Accuracy, loss and QWK during training", find_figure("*curves*.png")),
                     ("ROC curves and DR vs No DR confusion matrix", find_figure("*roc_binary*.png")),
                     ("Precision, recall and F1 per stage", find_figure("*per_class_prf*.png"))]

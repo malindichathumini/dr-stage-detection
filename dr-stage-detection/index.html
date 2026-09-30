@@ -13,7 +13,7 @@
 <div class="wrap">
 
   <header class="hero">
-    <div class="hero-eyebrow">Computer Vision &middot; CNN transfer learning &middot; runs in your browser</div>
+    <div class="hero-eyebrow">Computer Vision &middot; CNN transfer learning &middot; ensemble of 3 CNNs &middot; runs in your browser</div>
     <h1>Diabetic Retinopathy Stage Detection</h1>
     <p>Grades a retinal fundus photograph on the international 0&ndash;4 diabetic retinopathy scale and shows where
       the model looked. The model runs on your own device: your image is never uploaded.</p>
@@ -29,7 +29,7 @@
 
   <!-- ================= Analyse ================= -->
   <section class="panel" id="panel-analyse">
-    <div class="status" id="status"><span class="spinner"></span><span id="status-text">Loading the model (about 27 MB, only the first time)&hellip;</span></div>
+    <div class="status" id="status"><span class="spinner"></span><span id="status-text">Loading the models (about 130 MB, only the first time)&hellip;</span></div>
     <div class="grid-2">
       <div>
         <div class="step-label">1 &middot; Choose a fundus photograph</div>
@@ -65,6 +65,8 @@
   <!-- ================= Performance ================= -->
   <section class="panel" id="panel-performance" hidden>
     <div id="metrics"></div>
+    <div class="sub-h">Ensemble selection on the validation set</div>
+    <img class="fig" src="assets/figures/14b_ensemble_selection.png" alt="Validation scores of every model combination" loading="lazy">
     <div class="sub-h">Confusion matrix</div>
     <img class="fig" src="assets/figures/15_confusion_matrix.png" alt="Confusion matrices on the test set" loading="lazy">
     <div class="sub-h">Accuracy, loss and QWK during training</div>
@@ -87,8 +89,11 @@
         <b>Module:</b> Computer Vision, BSc (Hons) Computer Science, National Institute of Business Management.</p>
       <p><b>Data:</b> APTOS 2019 Blindness Detection (Kaggle): 3,662 retinal fundus photographs graded 0&ndash;4 by
         clinicians, split 70 / 15 / 15 into training, validation and test sets.</p>
-      <p><b>Deployment:</b> the trained Keras model was converted to ONNX and runs in the browser with ONNX Runtime Web
-        (WebAssembly). The site is static, so it is hosted for free on Vercel, and the retinal image never leaves the
+      <p><b>Model:</b> an ensemble of three fine-tuned CNNs: EfficientNetB0 at 300&times;300 px and EfficientNetB3 and
+        EfficientNetB4 at 380&times;380 px. Their stage probabilities are averaged. The combination was chosen on the
+        validation set only; the test set was used once, for the final result.</p>
+      <p><b>Deployment:</b> the trained Keras models were converted to ONNX and run in the browser with ONNX Runtime Web
+        (WebAssembly). The larger models are stored in parts under 25&nbsp;MB and joined after download. The site is static, so it is hosted for free on Vercel, and the retinal image never leaves the
         user's device, which protects patient privacy.</p>
       <p><b>Limitations:</b> trained on one dataset from one region and one set of cameras; image quality and grader
         disagreement affect the labels; the Mild and Severe stages have few examples and are the hardest to recognise.</p>
