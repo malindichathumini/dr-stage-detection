@@ -53,7 +53,7 @@ async function fetchJoined(urls) {
 async function init() {
   try {
     CFG = await (await fetch("model/config.json", { cache: "no-cache" })).json();   // always the newest settings
-    renderChips(); renderMetrics(); renderHow(); showPlaceholder();
+    renderFacts(); renderMetrics(); showPlaceholder();
 
     ort.env.wasm.wasmPaths = new URL("vendor/", location.href).href;
     // several threads only when the page is cross-origin isolated (see vercel.json), otherwise one
@@ -83,6 +83,10 @@ async function init() {
 function setStatus(kind, text) {
   $("status").className = "status " + kind;
   $("status-text").textContent = text;
+  // short version in the sidebar, visible on every page
+  $("model-state").className = "model-state " + kind;
+  $("model-state-text").textContent = kind === "ok" ? `${MEMBERS.length} models ready` :
+    kind === "err" ? "Models failed to load" : text.replace(/ \(.*$/, "").replace(/…$/, "");
 }
 
 // ------------------------------------------------------------------ image input
@@ -94,7 +98,7 @@ function loadFile(file) {
     currentImage = img;
     $("preview").src = url; $("preview").hidden = false; $("drop-empty").hidden = true;
     $("analyse").disabled = !READY;
-    showPlaceholder(); clearCanvases();
+    showPlaceholder(); clearCanvases(); $("lens-wrap").hidden = true;
   };
   img.src = url;
 }
@@ -106,7 +110,7 @@ const drop = $("drop");
 drop.addEventListener("drop", (e) => loadFile(e.dataTransfer.files[0]));
 $("clear").addEventListener("click", () => {
   currentImage = null; $("file").value = ""; $("preview").hidden = true; $("drop-empty").hidden = false;
-  $("analyse").disabled = true; showPlaceholder(); clearCanvases();
+  $("analyse").disabled = true; showPlaceholder(); clearCanvases(); $("lens-wrap").hidden = true;
 });
 $("analyse").addEventListener("click", analyse);
 
@@ -353,6 +357,7 @@ async function analyse() {
     drawOriginal($("c-orig"), currentImage, show);
     drawRGB($("c-input"), show.rgb, D);
     drawCam($("c-cam"), show.rgb, D, heat);
+    $("lens-wrap").hidden = false;
     $("result").innerHTML = resultCard(probs, stage, (performance.now() - t0) / 1000, runs);
     document.body.dataset.probs = JSON.stringify(probs);        // used by automated tests
     document.body.dataset.memberProbs = JSON.stringify(runs.map((r) => r.probs));
@@ -420,11 +425,14 @@ function resultCard(probs, stage, seconds, runs) {
   </div>`;
 }
 
-function renderChips() {
-  const m = CFG.test_stage_metrics;
-  const chips = [`Model: ${modelLabel()}`, `Input: ${sizeLabel()}`, "Dataset: APTOS 2019 (3,662 images)",
-    `Test accuracy: ${pct(m.accuracy)}`, `QWK: ${m.qwk.toFixed(3)}`, "Private: runs on your device"];
-  $("chips").innerHTML = chips.map((c) => `<span class="chip">${c}</span>`).join("");
+function renderFacts() {
+  // headline numbers on the overview page, read from model/config.json
+  const m = CFG.test_stage_metrics, b = CFG.test_binary_metrics;
+  const facts = [[pct(m.accuracy), "stage accuracy on 550 unseen test images"],
+    [m.qwk.toFixed(3), "quadratic weighted kappa, the official APTOS metric"],
+    [pct(b["sensitivity (recall)"]), "of eyes with retinopathy correctly flagged"],
+    [String(memberList(CFG).length), "CNNs in the ensemble, running on this device"]];
+  $("facts").innerHTML = facts.map(([v, l]) => `<div><b>${v}</b><span>${l}</span></div>`).join("");
 }
 
 function renderMetrics() {
@@ -439,40 +447,58 @@ function renderMetrics() {
   ].map(([t, v, s]) => `<div class="tile"><div class="t-l">${t}</div><div class="t-v">${v}</div><div class="t-s">${s}</div></div>`).join("");
   const rows = CFG.per_class.map((r) => `<tr><td><span class="dot" style="--c:${STAGES[r.stage][3]}"></span>${r.stage} &middot; ${STAGES[r.stage][0]}</td>
       <td>${r.precision.toFixed(3)}</td><td>${r.recall.toFixed(3)}</td><td>${r.f1.toFixed(3)}</td><td>${r.support}</td></tr>`).join("");
-  $("metrics").innerHTML = `<div class="sub-h">Held-out test set: ${CFG.test_images} images the model never saw during training</div>
-    <div class="tiles">${tiles}</div>
+  $("metrics").innerHTML = `<div class="tiles">${tiles}</div>
     <div class="sub-h">Per-stage results on the test set</div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Stage</th><th>Precision</th><th>Recall</th><th>F1-score</th><th>Images</th></tr></thead>
     <tbody>${rows}</tbody></table></div>`;
 }
 
-function renderHow() {
-  const list = memberList(CFG), multi = list.length > 1;
-  const steps = [
-    ["Crop and resize", `The black border is cropped, the image is padded to a square and resized to ${multi ? "the input size of each model (" + sizeLabel() + ")" : sizeLabel()} with area interpolation, exactly as in training.`],
-    ["Preprocess", CFG.preprocess_mode === "raw"
-      ? "The image is passed on without enhancement: in the notebook's full-training comparison this scored best, because EfficientNet normalises the pixels itself."
-      : `Preprocessing mode: ${CFG.preprocess_mode}.`],
-    ["Extract features", multi
-      ? `${list.length} ImageNet-pretrained CNNs fine-tuned on APTOS 2019 (${list.map((m) => escapeHtml(m.name)).join(", ")}) run in your browser (ONNX Runtime Web, WebAssembly). Each produces a feature map, for example 10×10×1280 for B0.`
-      : `The ImageNet-pretrained ${CFG.backbone}, fine-tuned on APTOS 2019, runs in your browser (ONNX Runtime Web, WebAssembly) and produces a 10×10×1280 feature map.`],
-    ["Classify", "In each model, global average pooling, a 256-unit ReLU layer and a 5-way softmax give the probability of each stage." +
-      (multi ? " The models' probabilities are averaged (this combination was chosen on the validation set only) and the most likely stage is reported." : " The most likely stage is reported.")],
-    ["Explain", "Grad-CAM weights each feature channel by the gradient of the predicted stage and highlights the image regions that most influenced the decision." +
-      (multi ? " The heat maps of all models are averaged." : "")],
-  ].map(([t, d], i) => `<div class="step"><span class="step-n">${i + 1}</span><div><b>${t}</b><br>${d}</div></div>`).join("");
-  const rows = STAGES.map((s, i) => `<tr><td><span class="dot" style="--c:${s[3]}"></span>${i}</td><td>${s[0]}</td><td>${s[1]}</td><td>${s[2]}</td></tr>`).join("");
-  $("how").innerHTML = `<div class="steps">${steps}</div>
-    <div class="sub-h">The five stages (international clinical DR severity scale)</div>
-    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>#</th><th>Stage</th><th>What is seen</th><th>Suggested next step</th></tr></thead><tbody>${rows}</tbody></table></div>
-    <div class="note"><b>Reading the heat map:</b> red and yellow areas influenced the prediction most, blue areas least. On DR images the heat
-    should sit on haemorrhages, exudates or new vessels. Heat on the optic disc or image edges shows the model also uses normal anatomy, a known limitation.</div>`;
+// ------------------------------------------------------------------ pages (hash navigation)
+const VIEWS = [...document.querySelectorAll(".view")].map((v) => v.id.replace("view-", ""));
+function route() {
+  const name = VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : "overview";
+  document.querySelectorAll(".view").forEach((v) => { v.hidden = v.id !== "view-" + name; });
+  document.querySelectorAll(".nav a").forEach((a) => {
+    if (a.dataset.view === name) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+  });
+  document.title = (name === "overview" ? "" : document.getElementById("view-" + name).dataset.title + " | ") + "DR Stage Detection";
+  closeMenu();
+  window.scrollTo(0, 0);
+  $("main").focus({ preventScroll: true });
 }
+window.addEventListener("hashchange", route);
 
-// ------------------------------------------------------------------ tabs
-document.querySelectorAll(".tab").forEach((btn) => btn.addEventListener("click", () => {
-  document.querySelectorAll(".tab").forEach((b) => { b.classList.toggle("active", b === btn); b.setAttribute("aria-selected", b === btn); });
-  document.querySelectorAll(".panel").forEach((p) => { p.hidden = p.id !== "panel-" + btn.dataset.tab; });
-}));
+// mobile menu
+function closeMenu() { document.body.classList.remove("nav-open"); $("scrim").hidden = true; $("menu-btn").setAttribute("aria-expanded", "false"); }
+$("menu-btn").addEventListener("click", () => {
+  const open = !document.body.classList.contains("nav-open");
+  document.body.classList.toggle("nav-open", open); $("scrim").hidden = !open; $("menu-btn").setAttribute("aria-expanded", String(open));
+});
+$("scrim").addEventListener("click", closeMenu);
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenu(); });
 
+// light / dark theme (remembered on this browser)
+function currentTheme() {
+  return document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+}
+function paintThemeButton() { $("theme-label").textContent = currentTheme() === "dark" ? "Light theme" : "Dark theme"; }
+$("theme-btn").addEventListener("click", () => {
+  const next = currentTheme() === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = next;
+  try { localStorage.setItem("theme", next); } catch (e) { /* storage blocked: theme lasts for this visit */ }
+  paintThemeButton();
+});
+paintThemeButton();
+
+// lens: drag to compare the photo with the heat map
+const lens = $("lens"), slider = $("lens-slider");
+function setCut(p) { p = Math.max(0, Math.min(100, p)); slider.value = p; lens.style.setProperty("--cut", p + "%"); }
+slider.addEventListener("input", () => setCut(+slider.value));
+let dragging = false;
+const fromPointer = (e) => { const r = lens.getBoundingClientRect(); setCut(((e.clientX - r.left) / r.width) * 100); };
+lens.addEventListener("pointerdown", (e) => { dragging = true; lens.setPointerCapture(e.pointerId); fromPointer(e); });
+lens.addEventListener("pointermove", (e) => { if (dragging) fromPointer(e); });
+lens.addEventListener("pointerup", () => { dragging = false; });
+
+route();
 init();

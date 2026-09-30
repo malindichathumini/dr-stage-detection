@@ -4,107 +4,345 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DR Stage Detection</title>
-<meta name="description" content="Grades retinal fundus photographs on the 0-4 diabetic retinopathy scale with a CNN that runs entirely in your browser.">
+<meta name="description" content="Grades retinal fundus photographs on the 0-4 diabetic retinopathy scale with an ensemble of three CNNs that runs entirely in your browser.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=Sora:wght@500;600;700&display=swap">
 <link rel="stylesheet" href="style.css">
+<script>try{var t=localStorage.getItem("theme");if(t)document.documentElement.dataset.theme=t;}catch(e){}</script>
 </head>
 <body>
-<div class="wrap">
+<a class="skip" href="#main">Skip to content</a>
 
-  <header class="hero">
-    <div class="hero-eyebrow">Computer Vision &middot; CNN transfer learning &middot; ensemble of 3 CNNs &middot; runs in your browser</div>
-    <h1>Diabetic Retinopathy Stage Detection</h1>
-    <p>Grades a retinal fundus photograph on the international 0&ndash;4 diabetic retinopathy scale and shows where
-      the model looked. The model runs on your own device: your image is never uploaded.</p>
-    <div class="chips" id="chips"></div>
-  </header>
+<!-- ============ Sidebar ============ -->
+<aside class="side" id="side">
+  <a class="brand" href="#overview" aria-label="DR Stage Detection home">
+    <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true">
+      <circle cx="20" cy="20" r="18" fill="var(--retina)"/>
+      <circle cx="27" cy="17" r="5" fill="var(--disc)"/>
+      <path d="M6 22c5-5 9 4 14 0s8-6 14-1" stroke="var(--vessel)" stroke-width="2" fill="none" stroke-linecap="round"/>
+      <path d="M10 12c4 2 7 7 10 5" stroke="var(--vessel)" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+    </svg>
+    <span><b>DR Stage</b><br>Detection</span>
+  </a>
 
-  <nav class="tabs" role="tablist">
-    <button class="tab active" role="tab" aria-selected="true" data-tab="analyse">Analyse an image</button>
-    <button class="tab" role="tab" aria-selected="false" data-tab="performance">Model performance</button>
-    <button class="tab" role="tab" aria-selected="false" data-tab="how">How it works</button>
-    <button class="tab" role="tab" aria-selected="false" data-tab="about">About</button>
+  <nav class="nav" aria-label="Sections">
+    <p class="nav-group">Use</p>
+    <a href="#overview" data-view="overview"><svg viewBox="0 0 24 24"><path d="M4 11l8-7 8 7v9a1 1 0 0 1-1 1h-5v-6h-4v6H5a1 1 0 0 1-1-1z"/></svg>Overview</a>
+    <a href="#analyse" data-view="analyse"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg>Analyse an image</a>
+    <p class="nav-group">Project</p>
+    <a href="#dataset" data-view="dataset"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/></svg>Dataset</a>
+    <a href="#pipeline" data-view="pipeline"><svg viewBox="0 0 24 24"><path d="M3 6h6v4H3zM15 14h6v4h-6zM9 8h4a2 2 0 0 1 2 2v6"/></svg>Pipeline</a>
+    <a href="#models" data-view="models"><svg viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg>Models</a>
+    <a href="#training" data-view="training"><svg viewBox="0 0 24 24"><path d="M3 18l5-6 4 3 8-9"/><path d="M15 6h5v5"/></svg>Training</a>
+    <p class="nav-group">Evidence</p>
+    <a href="#results" data-view="results"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Results</a>
+    <a href="#explain" data-view="explain"><svg viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>Explainability</a>
+    <p class="nav-group">Context</p>
+    <a href="#ethics" data-view="ethics"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></svg>Ethics and limits</a>
+    <a href="#about" data-view="about"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg>About and links</a>
   </nav>
 
-  <!-- ================= Analyse ================= -->
-  <section class="panel" id="panel-analyse">
-    <div class="status" id="status"><span class="spinner"></span><span id="status-text">Loading the models (about 130 MB, only the first time)&hellip;</span></div>
-    <div class="grid-2">
-      <div>
-        <div class="step-label">1 &middot; Choose a fundus photograph</div>
-        <label class="drop" id="drop" for="file">
-          <input type="file" id="file" accept="image/png,image/jpeg,image/webp">
-          <img id="preview" alt="" hidden>
-          <span class="drop-empty" id="drop-empty">
-            <span class="drop-icon">&#8679;</span>
-            <b>Drop an image here</b> or click to choose a file<br>
-            <small>PNG or JPEG retinal fundus photograph</small>
-          </span>
-        </label>
-        <div class="btn-row">
-          <button class="btn primary" id="analyse" disabled>Analyse image</button>
-          <button class="btn" id="clear">Clear</button>
+  <div class="side-foot">
+    <div class="model-state" id="model-state"><span class="dot-live"></span><span id="model-state-text">Loading models</span></div>
+    <button class="theme-btn" id="theme-btn" type="button" aria-label="Switch colour theme">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg><span id="theme-label">Dark theme</span>
+    </button>
+  </div>
+</aside>
+
+<header class="topbar">
+  <button class="menu-btn" id="menu-btn" type="button" aria-controls="side" aria-expanded="false">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menu</span>
+  </button>
+  <span class="topbar-title">DR Stage Detection</span>
+</header>
+<div class="scrim" id="scrim" hidden></div>
+
+<main id="main" tabindex="-1">
+
+<!-- ============ Overview ============ -->
+<section class="view" id="view-overview" data-title="Overview">
+  <div class="hero">
+    <div class="hero-text">
+      <h1>Grade diabetic retinopathy from a single retinal photograph.</h1>
+      <p class="lead">Three convolutional neural networks look at the photo, agree on a stage from 0 to 4, and show where they looked. Everything runs inside your browser, so the image never leaves your device.</p>
+      <div class="hero-actions">
+        <a class="btn primary" href="#analyse">Analyse an image</a>
+        <a class="btn" href="#results">See the test results</a>
+      </div>
+    </div>
+    <figure class="hero-scale" aria-label="The five stages of diabetic retinopathy">
+      <div class="stage-ramp">
+        <span style="--c:var(--s0)"><b>0</b>No DR</span>
+        <span style="--c:var(--s1)"><b>1</b>Mild</span>
+        <span style="--c:var(--s2)"><b>2</b>Moderate</span>
+        <span style="--c:var(--s3)"><b>3</b>Severe</span>
+        <span style="--c:var(--s4)"><b>4</b>Proliferative</span>
+      </div>
+      <figcaption>The international clinical scale the model predicts</figcaption>
+    </figure>
+  </div>
+
+  <div class="facts" id="facts"></div>
+
+  <h2 class="h2">What this project does</h2>
+  <div class="cols-3">
+    <div class="block"><h3>Detects the stage</h3><p>An ensemble of EfficientNetB0, B3 and B4, fine-tuned on 3,662 clinician-graded photographs from the APTOS 2019 dataset, predicts one of the five stages.</p></div>
+    <div class="block"><h3>Explains the decision</h3><p>Grad-CAM heat maps from all three models are averaged to show which parts of the retina influenced the prediction.</p></div>
+    <div class="block"><h3>Protects privacy</h3><p>The models were converted to ONNX and run with WebAssembly on your own device. No server sees the photograph.</p></div>
+  </div>
+
+  <h2 class="h2">Where to go next</h2>
+  <div class="jump">
+    <a href="#dataset"><b>Dataset</b><span>Classes, imbalance and the train, validation and test split</span></a>
+    <a href="#pipeline"><b>Pipeline</b><span>Preprocessing, augmentation and class balancing</span></a>
+    <a href="#models"><b>Models</b><span>The five CNNs compared and the final ensemble</span></a>
+    <a href="#training"><b>Training</b><span>Two-phase transfer learning and callbacks</span></a>
+    <a href="#results"><b>Results</b><span>Accuracy, F1, QWK, confusion matrix and ROC</span></a>
+    <a href="#ethics"><b>Ethics and limits</b><span>What this prototype should and should not be used for</span></a>
+  </div>
+</section>
+
+<!-- ============ Analyse ============ -->
+<section class="view" id="view-analyse" data-title="Analyse an image" hidden>
+  <h1 class="h1">Analyse an image</h1>
+  <p class="sub">Choose a colour fundus photograph. The three models run on this device and the result appears on the right.</p>
+  <div class="status" id="status" role="status"><span class="spinner"></span><span id="status-text">Loading the models (about 130 MB, only the first time)…</span></div>
+
+  <div class="analyse-grid">
+    <div class="panel">
+      <label class="drop" id="drop" for="file">
+        <input type="file" id="file" accept="image/png,image/jpeg,image/webp">
+        <img id="preview" alt="The photograph you selected" hidden>
+        <span class="drop-empty" id="drop-empty">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
+          <b>Drop a photograph here</b>
+          <small>or click to choose a PNG or JPEG file</small>
+        </span>
+      </label>
+      <div class="btn-row">
+        <button class="btn primary" id="analyse" type="button" disabled>Analyse image</button>
+        <button class="btn" id="clear" type="button">Clear</button>
+      </div>
+      <p class="hint">Dataset images are not published on this site because APTOS 2019 is covered by Kaggle's competition rules. Use your own fundus photographs or the test images from the project folder.</p>
+
+      <div class="lens-wrap" id="lens-wrap" hidden>
+        <h2 class="h3">Where the models looked</h2>
+        <div class="lens" id="lens">
+          <canvas id="c-input" aria-label="Model input"></canvas>
+          <canvas id="c-cam" aria-label="Grad-CAM heat map"></canvas>
+          <span class="lens-handle" id="lens-handle" aria-hidden="true"></span>
         </div>
-        <p class="hint">Tip: use the test images in your <code>examples</code> folder. Dataset images are not published on
-          this site because the APTOS 2019 data is covered by Kaggle's competition rules.</p>
+        <label class="slider-label" for="lens-slider">Drag to compare the photo with the heat map</label>
+        <input type="range" id="lens-slider" min="0" max="100" value="50">
+        <div class="lens-legend"><span>Photo</span><span class="jet" aria-hidden="true"></span><span>Heat map: low to high influence</span></div>
+        <details class="orig">
+          <summary>Show the cropped original</summary>
+          <canvas id="c-orig" aria-label="Cropped original photograph"></canvas>
+        </details>
       </div>
-      <div>
-        <div class="step-label">2 &middot; Result</div>
-        <div id="result"></div>
-      </div>
     </div>
-    <div class="step-label">3 &middot; What the model saw and where it looked</div>
-    <div class="grid-3">
-      <figure class="imgbox"><figcaption>Original (cropped)</figcaption><canvas id="c-orig"></canvas></figure>
-      <figure class="imgbox"><figcaption>Model input</figcaption><canvas id="c-input"></canvas></figure>
-      <figure class="imgbox"><figcaption>Grad-CAM heat map</figcaption><canvas id="c-cam"></canvas></figure>
-    </div>
-  </section>
+    <div class="panel" id="result" aria-live="polite"></div>
+  </div>
+</section>
 
-  <!-- ================= Performance ================= -->
-  <section class="panel" id="panel-performance" hidden>
-    <div id="metrics"></div>
-    <div class="sub-h">Ensemble selection on the validation set</div>
-    <img class="fig" src="assets/figures/14b_ensemble_selection.png" alt="Validation scores of every model combination" loading="lazy">
-    <div class="sub-h">Confusion matrix</div>
-    <img class="fig" src="assets/figures/15_confusion_matrix.png" alt="Confusion matrices on the test set" loading="lazy">
-    <div class="sub-h">Accuracy, loss and QWK during training</div>
-    <img class="fig" src="assets/figures/13_accuracy_loss_qwk_curves.png" alt="Training curves" loading="lazy">
-    <div class="sub-h">ROC curves and DR vs No DR confusion matrix</div>
-    <img class="fig" src="assets/figures/17_roc_binary.png" alt="ROC curves" loading="lazy">
-    <div class="sub-h">Precision, recall and F1 per stage</div>
-    <img class="fig" src="assets/figures/16_per_class_prf.png" alt="Per-stage precision recall F1" loading="lazy">
-  </section>
+<!-- ============ Dataset ============ -->
+<section class="view" id="view-dataset" data-title="Dataset" hidden>
+  <h1 class="h1">Dataset</h1>
+  <p class="sub">APTOS 2019 Blindness Detection (Kaggle): 3,662 colour fundus photographs from Aravind Eye Hospital, India, each graded 0–4 by clinicians.</p>
 
-  <!-- ================= How it works ================= -->
-  <section class="panel" id="panel-how" hidden>
-    <div id="how"></div>
-  </section>
+  <h2 class="h2">The five classes</h2>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Stage</th><th>What a clinician sees</th><th>Images</th><th>Share</th></tr></thead>
+    <tbody>
+      <tr><td><span class="sw" style="--c:var(--s0)"></span>0 No DR</td><td>No visible signs of retinopathy</td><td>1,805</td><td>49.3%</td></tr>
+      <tr><td><span class="sw" style="--c:var(--s1)"></span>1 Mild NPDR</td><td>Microaneurysms only</td><td>370</td><td>10.1%</td></tr>
+      <tr><td><span class="sw" style="--c:var(--s2)"></span>2 Moderate NPDR</td><td>More microaneurysms, dot and blot haemorrhages, hard exudates</td><td>999</td><td>27.3%</td></tr>
+      <tr><td><span class="sw" style="--c:var(--s3)"></span>3 Severe NPDR</td><td>Many haemorrhages in all quadrants, venous beading (4-2-1 rule)</td><td>193</td><td>5.3%</td></tr>
+      <tr><td><span class="sw" style="--c:var(--s4)"></span>4 Proliferative DR</td><td>New fragile vessels that can bleed or detach the retina</td><td>295</td><td>8.1%</td></tr>
+    </tbody>
+  </table></div>
+  <div class="imbalance" aria-hidden="true">
+    <span style="--w:49.3;--c:var(--s0)"></span><span style="--w:10.1;--c:var(--s1)"></span><span style="--w:27.3;--c:var(--s2)"></span><span style="--w:5.3;--c:var(--s3)"></span><span style="--w:8.1;--c:var(--s4)"></span>
+  </div>
+  <p class="note">The data is strongly imbalanced: half of the images show no retinopathy and only 5% are Severe. This is why class balancing was tested and why macro F1 is reported next to accuracy.</p>
 
-  <!-- ================= About ================= -->
-  <section class="panel" id="panel-about" hidden>
-    <div class="about">
-      <p><b>Project:</b> Diabetic Retinopathy Stage Detection using CNN transfer learning.<br>
-        <b>Module:</b> Computer Vision, BSc (Hons) Computer Science, National Institute of Business Management.</p>
-      <p><b>Data:</b> APTOS 2019 Blindness Detection (Kaggle): 3,662 retinal fundus photographs graded 0&ndash;4 by
-        clinicians, split 70 / 15 / 15 into training, validation and test sets.</p>
-      <p><b>Model:</b> an ensemble of three fine-tuned CNNs: EfficientNetB0 at 300&times;300 px and EfficientNetB3 and
-        EfficientNetB4 at 380&times;380 px. Their stage probabilities are averaged. The combination was chosen on the
-        validation set only; the test set was used once, for the final result.</p>
-      <p><b>Deployment:</b> the trained Keras models were converted to ONNX and run in the browser with ONNX Runtime Web
-        (WebAssembly). The larger models are stored in parts under 25&nbsp;MB and joined after download. The site is static, so it is hosted for free on Vercel, and the retinal image never leaves the
-        user's device, which protects patient privacy.</p>
-      <p><b>Limitations:</b> trained on one dataset from one region and one set of cameras; image quality and grader
-        disagreement affect the labels; the Mild and Severe stages have few examples and are the hardest to recognise.</p>
-      <div class="note warn"><b>Not a medical device.</b> This prototype was built for coursework. Its output must not be
-        used to diagnose or treat anyone. Anyone with diabetes should have regular eye examinations by a qualified
-        professional.</div>
-    </div>
-  </section>
+  <h2 class="h2">Split before augmentation</h2>
+  <div class="split">
+    <div style="--w:70"><b>Training</b><span>2,563 images · 70%</span></div>
+    <div style="--w:15"><b>Validation</b><span>549 · 15%</span></div>
+    <div style="--w:15"><b>Test</b><span>550 · 15%</span></div>
+  </div>
+  <p>The split is stratified by stage with a fixed seed (42), and it is made before any augmentation, so no test image or copy of one can leak into training. Every design decision was made on the validation set; the test set was used once per version.</p>
 
-  <footer class="foot">Research prototype &middot; not for clinical use</footer>
-</div>
+  <div class="figs">
+    <figure><img src="assets/figures/01_class_distribution.png" alt="Bar chart of images per stage" loading="lazy"><figcaption>Images per stage</figcaption></figure>
+    <figure><img src="assets/figures/06_split_distribution.png" alt="Stage distribution in the training, validation and test sets" loading="lazy"><figcaption>The same stage mix in all three sets</figcaption></figure>
+    <figure><img src="assets/figures/02_resolutions.png" alt="Original image resolutions" loading="lazy"><figcaption>Original image sizes vary widely, so every photo is resized</figcaption></figure>
+  </div>
+</section>
+
+<!-- ============ Pipeline ============ -->
+<section class="view" id="view-pipeline" data-title="Pipeline" hidden>
+  <h1 class="h1">Pipeline</h1>
+  <p class="sub">From a raw photograph to a stage prediction. Each step was tested with full training before it was kept.</p>
+
+  <ol class="steps">
+    <li><b>Crop and square</b><p>The black border around the retina is cropped, the image is padded to a square and resized with area interpolation to 300 px (B0) or 380 px (B3, B4).</p></li>
+    <li><b>Enhance (tested)</b><p>Three options were compared: the raw image, median denoising with CLAHE contrast enhancement on the LAB lightness channel and unsharp-mask edge enhancement, and Ben Graham's local-average subtraction. Normalisation happens inside each EfficientNet.</p></li>
+    <li><b>Augment the training images</b><p>Random flips, 360° rotation, zoom, translation, brightness and contrast are applied on the fly. A retina has no natural up direction and cameras differ in exposure, so these changes create realistic new examples.</p></li>
+    <li><b>Balance the classes</b><p>Balanced class weights, square-root weights and oversampling of rare stages were compared. Oversampling was kept.</p></li>
+    <li><b>Classify and explain</b><p>Three fine-tuned CNNs predict stage probabilities, which are averaged. Grad-CAM shows the regions that drove the prediction.</p></li>
+  </ol>
+
+  <h2 class="h2">What the experiments showed</h2>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Preprocessing</th><th>Validation QWK</th><th>Kept</th></tr></thead>
+    <tbody>
+      <tr><td>Raw (crop and resize only)</td><td>0.861</td><td>Yes</td></tr>
+      <tr><td>CLAHE + unsharp mask</td><td>0.858</td><td>No</td></tr>
+      <tr><td>Ben Graham filter</td><td>0.829</td><td>No</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">Enhancement did not help here: EfficientNet already normalises its input and learns its own contrast features, while strong filtering changed colours the pretrained network relies on. The enhancement code stays in the project and in the desktop app.</p>
+
+  <div class="figs">
+    <figure><img src="assets/figures/05_clahe_histogram.png" alt="Brightness histogram before and after CLAHE" loading="lazy"><figcaption>CLAHE spreads the brightness histogram</figcaption></figure>
+    <figure><img src="assets/figures/11_preprocessing_comparison.png" alt="Validation scores for the three preprocessing options" loading="lazy"><figcaption>Preprocessing comparison with full training</figcaption></figure>
+    <figure><img src="assets/figures/07_class_balancing.png" alt="Class counts before and after balancing" loading="lazy"><figcaption>Training set before and after oversampling</figcaption></figure>
+    <figure><img src="assets/figures/12_balancing_comparison.png" alt="Validation scores for the three balancing methods" loading="lazy"><figcaption>Balancing comparison</figcaption></figure>
+  </div>
+</section>
+
+<!-- ============ Models ============ -->
+<section class="view" id="view-models" data-title="Models" hidden>
+  <h1 class="h1">Models</h1>
+  <p class="sub">All models are convolutional neural networks pre-trained on ImageNet and fine-tuned on APTOS 2019. Five were compared; three form the final ensemble.</p>
+
+  <div class="model-cards">
+    <article class="mcard final"><h3>EfficientNetB0</h3><p class="role">Ensemble member, 300 px</p><dl><dt>Parameters</dt><dd>4.05 M</dd><dt>Feature map</dt><dd>10×10×1280</dd><dt>Validation accuracy</dt><dd>78.9%</dd></dl><p>Best validation QWK in the backbone comparison, so it became the base model for versions 1 and 2.</p></article>
+    <article class="mcard final"><h3>EfficientNetB3</h3><p class="role">Ensemble member, 380 px</p><dl><dt>Parameters</dt><dd>10.78 M</dd><dt>Feature map</dt><dd>12×12×1536</dd><dt>Validation accuracy</dt><dd>80.9%</dd></dl><p>Higher resolution shows smaller lesions such as microaneurysms.</p></article>
+    <article class="mcard final"><h3>EfficientNetB4</h3><p class="role">Ensemble member, 380 px</p><dl><dt>Parameters</dt><dd>17.67 M</dd><dt>Feature map</dt><dd>12×12×1792</dd><dt>Validation accuracy</dt><dd>79.4%</dd></dl><p>The deepest member, trained with a different seed to add diversity.</p></article>
+    <article class="mcard"><h3>ResNet50V2</h3><p class="role">Compared, not selected</p><dl><dt>Parameters</dt><dd>23.56 M</dd><dt>Design</dt><dd>Residual blocks</dd></dl><p>Lower validation QWK than EfficientNetB0 while being much larger.</p></article>
+    <article class="mcard"><h3>MobileNetV2</h3><p class="role">Compared, not selected</p><dl><dt>Parameters</dt><dd>2.26 M</dd><dt>Design</dt><dd>Lightweight</dd></dl><p>The smallest model, but the lowest validation QWK of the four compared.</p></article>
+  </div>
+
+  <h2 class="h2">The final ensemble</h2>
+  <p>Each member gets the photograph at its own input size. The same head sits on every backbone: global average pooling, dropout 0.4, a 256-unit ReLU layer with L2 regularisation, dropout 0.4 and a 5-way softmax. The three members' probabilities are averaged. Every combination of trained models, with and without test-time augmentation, was scored on the validation set; this one scored best (validation accuracy 81.2%).</p>
+  <figure class="wide"><img src="assets/figures/Fig_C_models_overview.png" alt="Overview of the five CNNs compared, the three-model ensemble and the four versions" loading="lazy"><figcaption>Models compared, the final ensemble and how it developed</figcaption></figure>
+  <figure class="wide"><img src="assets/figures/Fig_B_cnn_architecture.png" alt="Layer-by-layer architecture of the EfficientNetB0 member" loading="lazy"><figcaption>Architecture of one member (EfficientNetB0) with the classification head</figcaption></figure>
+  <div class="figs">
+    <figure><img src="assets/figures/09_backbone_comparison.png" alt="Validation accuracy, macro F1 and QWK of four backbones" loading="lazy"><figcaption>Experiment 1: backbone comparison</figcaption></figure>
+    <figure><img src="assets/figures/10_hyperparameter_grid.png" alt="Validation QWK over learning rate and dropout" loading="lazy"><figcaption>Experiment 2: learning rate and dropout grid</figcaption></figure>
+    <figure><img src="assets/figures/14b_ensemble_selection.png" alt="Validation scores of the best model combinations" loading="lazy"><figcaption>Ensemble selection on the validation set</figcaption></figure>
+  </div>
+</section>
+
+<!-- ============ Training ============ -->
+<section class="view" id="view-training" data-title="Training" hidden>
+  <h1 class="h1">Training</h1>
+  <p class="sub">Trained on Kaggle with an NVIDIA T4 GPU. Every random seed is fixed so the runs can be repeated.</p>
+  <ol class="steps">
+    <li><b>Phase 1: train the new head</b><p>The ImageNet backbone is frozen and only the new head learns, with a learning rate of 0.001. This protects the pretrained features from large early gradients.</p></li>
+    <li><b>Phase 2: fine-tune everything</b><p>The whole backbone is unfrozen and trained at 2 × 10⁻⁵, with BatchNorm layers kept frozen so their statistics stay stable on small batches.</p></li>
+  </ol>
+  <h2 class="h2">Callbacks and regularisation</h2>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Technique</th><th>Setting</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>Validation QWK callback</td><td>Computed after every epoch</td><td>QWK is the official APTOS metric and rewards near-miss grades</td></tr>
+      <tr><td>Early stopping</td><td>On validation QWK, best weights restored</td><td>Stops before the model overfits</td></tr>
+      <tr><td>Model checkpoint</td><td>Best validation QWK saved</td><td>Keeps the best epoch, not the last</td></tr>
+      <tr><td>ReduceLROnPlateau</td><td>Lower the learning rate when progress stalls</td><td>Finer steps near the optimum</td></tr>
+      <tr><td>Label smoothing</td><td>0.05</td><td>Graders disagree on borderline images</td></tr>
+      <tr><td>Dropout and L2</td><td>Dropout 0.4, L2 on the dense layer</td><td>Less overfitting on a small dataset</td></tr>
+      <tr><td>Hyperparameter grid</td><td>Learning rate × dropout</td><td>Chosen on validation: 0.001 and 0.4</td></tr>
+    </tbody>
+  </table></div>
+  <figure class="wide"><img src="assets/figures/13_accuracy_loss_qwk_curves.png" alt="Training and validation accuracy, loss and QWK per epoch" loading="lazy"><figcaption>Accuracy, loss and QWK per epoch for both phases</figcaption></figure>
+</section>
+
+<!-- ============ Results ============ -->
+<section class="view" id="view-results" data-title="Results" hidden>
+  <h1 class="h1">Results</h1>
+  <p class="sub">Measured once on 550 held-out test images that were never used for training or for any decision.</p>
+  <div id="metrics"></div>
+
+  <h2 class="h2">How the model improved</h2>
+  <div class="versions" id="versions">
+    <div class="ver"><span class="ver-name">Version 1</span><span class="ver-desc">EfficientNetB0, 224 px, top layers fine-tuned</span><span class="ver-bar"><i style="--v:74.4"></i></span><span class="ver-val">74.4%</span></div>
+    <div class="ver"><span class="ver-name">Version 2</span><span class="ver-desc">EfficientNetB0, 300 px, full fine-tuning</span><span class="ver-bar"><i style="--v:78.9"></i></span><span class="ver-val">78.9%</span></div>
+    <div class="ver"><span class="ver-name">Version 3</span><span class="ver-desc">Ensemble of B0 and B3 at 300 px</span><span class="ver-bar"><i style="--v:79.8"></i></span><span class="ver-val">79.8%</span></div>
+    <div class="ver final"><span class="ver-name">Version 4</span><span class="ver-desc">Ensemble of B0, B3 and B4 at 300 and 380 px</span><span class="ver-bar"><i style="--v:80.4"></i></span><span class="ver-val">80.4%</span></div>
+  </div>
+  <p class="note">Test accuracy per version; the bars start at 70%. Version 4 has the best accuracy and the best Mild-stage recall. Version 3 has a slightly higher macro F1 (0.654) and QWK (0.888), so the last step is a trade-off rather than a gain on every metric.</p>
+
+  <h2 class="h2">Charts</h2>
+  <div class="figs">
+    <figure><img src="assets/figures/15_confusion_matrix.png" alt="Confusion matrices on the test set" loading="lazy"><figcaption>Confusion matrix: most errors are one stage away</figcaption></figure>
+    <figure><img src="assets/figures/16_per_class_prf.png" alt="Precision, recall and F1 per stage" loading="lazy"><figcaption>Precision, recall and F1 per stage</figcaption></figure>
+    <figure><img src="assets/figures/17_roc_binary.png" alt="ROC curves and the DR versus no DR confusion matrix" loading="lazy"><figcaption>ROC curves and DR versus no DR screening</figcaption></figure>
+    <figure><img src="assets/figures/14_inference_optimisation.png" alt="Validation scores of argmax, TTA and threshold decision rules" loading="lazy"><figcaption>Decision rule comparison: plain argmax kept</figcaption></figure>
+  </div>
+
+  <h2 class="h2">Reading the errors</h2>
+  <p>No DR and Moderate are recognised well. Mild, Severe and Proliferative are harder: they have few training examples and their borders are subtle, and clinicians also disagree on them. Most mistakes land on a neighbouring stage, which is why the quadratic weighted kappa (0.877) is high even though exact accuracy is 80%. For screening, what matters most is separating any DR from no DR, and there the ensemble reaches 97.8% sensitivity and 97.8% specificity.</p>
+</section>
+
+<!-- ============ Explainability ============ -->
+<section class="view" id="view-explain" data-title="Explainability" hidden>
+  <h1 class="h1">Explainability</h1>
+  <p class="sub">A grade is only useful to a clinician if they can check why it was given.</p>
+  <div class="cols-2">
+    <div class="block"><h3>How Grad-CAM works here</h3><p>For each model, the gradient of the predicted stage is taken with respect to the last convolutional feature map. Averaging the gradient per channel gives each channel a weight; the weighted sum of the channels, with negatives removed, is the heat map. The three maps are resized to the same size and averaged. In the browser, the gradients through the dense head are derived analytically, so no deep-learning framework is needed.</p></div>
+    <div class="block"><h3>How to read the heat map</h3><p>Red and yellow areas influenced the prediction most, blue areas least. On diseased eyes the heat should sit on haemorrhages, exudates or new vessels. Heat on the optic disc or the image edge means the model also uses normal anatomy, which is a known limitation and a reason to keep a clinician in the loop.</p></div>
+  </div>
+  <p><a class="btn" href="#analyse">Try it on a photograph</a></p>
+</section>
+
+<!-- ============ Ethics ============ -->
+<section class="view" id="view-ethics" data-title="Ethics and limits" hidden>
+  <h1 class="h1">Ethics and limits</h1>
+  <div class="warn"><b>This is not a medical device.</b> It was built for coursework. Its output must not be used to diagnose or treat anyone. Anyone with diabetes should have regular eye examinations by a qualified professional.</div>
+  <div class="cols-2">
+    <div class="block"><h3>Privacy</h3><p>Photographs are processed on the user's own device and are never uploaded. The dataset images are not redistributed on this site.</p></div>
+    <div class="block"><h3>Bias</h3><p>All training images come from one hospital network in India, with its own cameras and population. Accuracy may be lower on other populations, cameras or image quality.</p></div>
+    <div class="block"><h3>Label noise</h3><p>Stages were graded by clinicians who do not always agree, especially between neighbouring stages. The model inherits that uncertainty.</p></div>
+    <div class="block"><h3>Rare stages</h3><p>Severe (29 test images) and Proliferative (44) have few examples, so their recall is lower and their measured scores are less certain.</p></div>
+  </div>
+  <h2 class="h2">Future improvements</h2>
+  <ul class="list">
+    <li>Train and test on more datasets, such as EyePACS and Messidor-2, to reduce bias.</li>
+    <li>Validate prospectively with ophthalmologists before any clinical use.</li>
+    <li>Add an image-quality check that rejects blurred or badly exposed photos.</li>
+    <li>Improve the rare stages with focal loss or more targeted data.</li>
+    <li>Package the browser model as an offline mobile app for rural screening camps.</li>
+  </ul>
+</section>
+
+<!-- ============ About ============ -->
+<section class="view" id="view-about" data-title="About and links" hidden>
+  <h1 class="h1">About and links</h1>
+  <p class="sub">Diabetic Retinopathy Stage Detection using CNN transfer learning. Computer Vision coursework, BSc (Hons) Computer Science, National Institute of Business Management.</p>
+  <div class="links">
+    <a href="https://github.com/malindichathumini/dr-stage-detection" target="_blank" rel="noopener"><b>Code on GitHub</b><span>Website, desktop app, notebooks and conversion tools</span></a>
+    <a href="https://www.kaggle.com/code/malindichathumini/dr-stage-detection-ensemble-v4" target="_blank" rel="noopener"><b>Final notebook on Kaggle</b><span>Version 4 ensemble, 80.4% test accuracy</span></a>
+    <a href="https://www.kaggle.com/code/malindichathumini/dr-stage-detection-experiments" target="_blank" rel="noopener"><b>Experiments notebook on Kaggle</b><span>Backbone, hyperparameter, preprocessing and balancing comparisons</span></a>
+    <a href="https://www.kaggle.com/competitions/aptos2019-blindness-detection" target="_blank" rel="noopener"><b>APTOS 2019 dataset</b><span>Kaggle competition data</span></a>
+  </div>
+  <h2 class="h2">Technologies</h2>
+  <div class="tbl-wrap"><table class="tbl">
+    <tbody>
+      <tr><td>Training</td><td>Python, TensorFlow and Keras, scikit-learn, OpenCV, NumPy, pandas, Matplotlib on Kaggle</td></tr>
+      <tr><td>Website</td><td>HTML, CSS, JavaScript, ONNX Runtime Web (WebAssembly), hosted on Vercel</td></tr>
+      <tr><td>Desktop app</td><td>Python and Gradio</td></tr>
+      <tr><td>Conversion</td><td>tf2onnx and ONNX</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<footer class="foot">Research prototype for coursework. Not for clinical use.</footer>
+</main>
 
 <script src="vendor/ort.wasm.min.js"></script>
 <script src="app.js"></script>
